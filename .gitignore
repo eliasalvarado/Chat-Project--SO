@@ -2,3 +2,5 @@
 /.vscode
 client
 server
+chat.pb.cc
+chat.pb.h
