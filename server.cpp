@@ -97,6 +97,60 @@ void handle_get_users(const chat::UserListRequest& user_list_request, chat::User
     }
 }
 
+void handle_send_message(const chat::SendMessageRequest& request, chat::Response& response, const std::string& sender) {
+    if (request.recipient().empty()) {
+        // Broadcast message to all online users
+        chat::IncomingMessageResponse message;
+        message.set_sender(sender);
+        message.set_content(request.content());
+        message.set_type(chat::MessageType::BROADCAST);
+        
+        chat::Response broadcast_response;
+        broadcast_response.set_operation(chat::Operation::INCOMING_MESSAGE);
+        *broadcast_response.mutable_incoming_message() = message;
+
+        std::string response_str;
+        broadcast_response.SerializeToString(&response_str);
+
+        pthread_mutex_lock(&users_mutex);
+        for (const auto& user : users) {
+            if (user.second.status == chat::UserStatus::ONLINE) {
+                send(user.second.socket, response_str.c_str(), response_str.size(), 0);
+            }
+        }
+        pthread_mutex_unlock(&users_mutex);
+
+        response.set_status_code(chat::StatusCode::OK);
+        response.set_message("Message broadcasted successfully");
+    } else {
+        // Send direct message to a specific user
+        pthread_mutex_lock(&users_mutex);
+        auto it = users.find(request.recipient());
+        if (it != users.end() && it->second.status == chat::UserStatus::ONLINE) {
+            chat::IncomingMessageResponse message;
+            message.set_sender(sender);
+            message.set_content(request.content());
+            message.set_type(chat::MessageType::DIRECT);
+
+            chat::Response direct_response;
+            direct_response.set_operation(chat::Operation::INCOMING_MESSAGE);
+            *direct_response.mutable_incoming_message() = message;
+
+            std::string response_str;
+            direct_response.SerializeToString(&response_str);
+
+            send(it->second.socket, response_str.c_str(), response_str.size(), 0);
+
+            response.set_status_code(chat::StatusCode::OK);
+            response.set_message("Message sent successfully");
+        } else {
+            response.set_status_code(chat::StatusCode::NOT_FOUND);
+            response.set_message("Recipient not found or offline");
+        }
+        pthread_mutex_unlock(&users_mutex);
+    }
+}
+
 
 void handle_client(int socket) {
     char buffer[1024];
@@ -121,6 +175,9 @@ void handle_client(int socket) {
                 break;
             case chat::Operation::GET_USERS:
                 handle_get_users(request.get_users(), response.mutable_user_list());
+                break;
+            case chat::Operation::SEND_MESSAGE:
+                handle_send_message(request.send_message(), response, "TODO: Get sender username");
                 break;
             default:
                 response.set_status_code(chat::StatusCode::BAD_REQUEST);
