@@ -305,7 +305,6 @@ void receive_messages(int sock) {
         FD_ZERO(&read_fds);
         FD_SET(sock, &read_fds);
 
-        // Configura un timeout para select()
         tv.tv_sec = 5;
         tv.tv_usec = 0;
 
@@ -314,7 +313,6 @@ void receive_messages(int sock) {
             perror("select()");
             break;
         } else if (retval) {
-            // Datos disponibles para leer
             int bytes_read = read(sock, buffer, sizeof(buffer));
             if (bytes_read > 0) {
                 chat::Response response;
@@ -323,7 +321,6 @@ void receive_messages(int sock) {
                 if (response.operation() == chat::Operation::INCOMING_MESSAGE) {
                     const chat::IncomingMessageResponse& msg = response.incoming_message();
                     std::string message_type = (msg.type() == chat::MessageType::BROADCAST) ? "Broadcast" : "Direct";
-
                     std::cout << "-----New Message Incoming-----\n";
                     std::cout << "From: " << msg.sender() << "\n";
                     std::cout << "Type: " << message_type << "\n";
@@ -331,7 +328,6 @@ void receive_messages(int sock) {
                     std::cout << "----------------------\n";
                 }
             } else if (bytes_read == 0) {
-                // El servidor cerró la conexión
                 std::cout << "Server closed connection\n";
                 break;
             }
