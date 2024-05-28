@@ -165,28 +165,12 @@ void handle_client(int socket) {
         chat::Request request;
         request.ParseFromArray(buffer, bytes_read);
 
-        chat::Response response;
-        switch (request.operation()) {
-            case chat::Operation::REGISTER_USER:
-                handle_register_user(request.register_user(), response, socket, "TODO: Get IP Address");
-                break;
-            case chat::Operation::UPDATE_STATUS:
-                handle_update_status(request.update_status(), response);
-                break;
-            case chat::Operation::GET_USERS:
-                handle_get_users(request.get_users(), response.mutable_user_list());
-                break;
-            case chat::Operation::SEND_MESSAGE:
-                handle_send_message(request.send_message(), response, "TODO: Get sender username");
-                break;
-            default:
-                response.set_status_code(chat::StatusCode::BAD_REQUEST);
-                response.set_message("Unknown operation");
-        }
+        std::string username = "";
 
         pthread_mutex_lock(&users_mutex);
         for (auto& user : users) {
             if (user.second.socket == socket && chat::Operation::UPDATE_STATUS != request.operation()) {
+                username = user.second.username;
                 std::cout << "The user: " << user.second.username << " will be updated to ONLINE" << std::endl;
                 user.second.last_activity = std::chrono::system_clock::now();
                 user.second.status = chat::UserStatus::ONLINE;
@@ -194,6 +178,29 @@ void handle_client(int socket) {
             }
         }
         pthread_mutex_unlock(&users_mutex);
+
+        chat::Response response;
+        switch (request.operation()) {
+            case chat::Operation::REGISTER_USER:
+                std::cout << "Handling register user " << username << std::endl;
+                handle_register_user(request.register_user(), response, socket, "TODO: Get IP Address");
+                break;
+            case chat::Operation::UPDATE_STATUS:
+                std::cout << "Handling update status from: " << username << std::endl;
+                handle_update_status(request.update_status(), response);
+                break;
+            case chat::Operation::GET_USERS:
+                std::cout << "Handling list user(s) from: " << username << std::endl;
+                handle_get_users(request.get_users(), response.mutable_user_list());
+                break;
+            case chat::Operation::SEND_MESSAGE:
+                std::cout << "Handling send message from: " << username << std::endl;
+                handle_send_message(request.send_message(), response, username);
+                break;
+            default:
+                response.set_status_code(chat::StatusCode::BAD_REQUEST);
+                response.set_message("Unknown operation");
+        }
 
         std::string response_str;
         response.SerializeToString(&response_str);
