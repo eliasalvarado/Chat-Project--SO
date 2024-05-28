@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <chrono>
 #include <thread>
+#include <arpa/inet.h>
 #include "chat.pb.h"
 
 struct UserSession {
@@ -152,7 +153,7 @@ void handle_send_message(const chat::SendMessageRequest& request, chat::Response
 }
 
 
-void handle_client(int socket) {
+void handle_client(int socket, const std::string& client_ip) {
     char buffer[1024];
 
     while (true) {
@@ -183,7 +184,7 @@ void handle_client(int socket) {
         switch (request.operation()) {
             case chat::Operation::REGISTER_USER:
                 std::cout << "Handling register user " << username << std::endl;
-                handle_register_user(request.register_user(), response, socket, "TODO: Get IP Address");
+                handle_register_user(request.register_user(), response, socket, client_ip);
                 break;
             case chat::Operation::UPDATE_STATUS:
                 std::cout << "Handling update status from: " << username << std::endl;
@@ -211,10 +212,22 @@ void handle_client(int socket) {
 }
 
 
-void* handle_client_wrapper(void* client_socket) {
-    int socket = *(int*)client_socket;
-    free(client_socket);
-    handle_client(socket);
+// void* handle_client_wrapper(void* client_socket) {
+//     int socket = *(int*)client_socket;
+//     free(client_socket);
+//     handle_client(socket);
+//     return NULL;
+// }
+void* handle_client_wrapper(void* client_socket_info) {
+    auto client_info = reinterpret_cast<std::pair<int, sockaddr_in>*>(client_socket_info);
+    int socket = client_info->first;
+    sockaddr_in address = client_info->second;
+
+    char ip_address[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &(address.sin_addr), ip_address, INET_ADDRSTRLEN);
+
+    free(client_socket_info);
+    handle_client(socket, std::string(ip_address));
     return NULL;
 }
 
