@@ -297,27 +297,48 @@ void exit_chat(int sock) {
 }
 
 void receive_messages(int sock) {
+    fd_set read_fds;
+    struct timeval tv;
     char buffer[1024];
+
     while (true) {
-        int bytes_read = read(sock, buffer, sizeof(buffer));
-        if (bytes_read > 0) {
-            chat::Response response;
-            response.ParseFromArray(buffer, bytes_read);
+        FD_ZERO(&read_fds);
+        FD_SET(sock, &read_fds);
 
-            if (response.operation() == chat::Operation::INCOMING_MESSAGE) {
-                const chat::IncomingMessageResponse& msg = response.incoming_message();
-                std::string message_type = (msg.type() == chat::MessageType::BROADCAST) ? "Broadcast" : "Direct";
+        // Configura un timeout para select()
+        tv.tv_sec = 5;
+        tv.tv_usec = 0;
 
-                std::cout << "-----New Message Incoming-----\n";
-                std::cout << "From: " << msg.sender() << "\n";
-                std::cout << "Type: " << message_type << "\n";
-                std::cout << "Content: " << msg.content() << "\n";
-                std::cout << "----------------------\n";
-                return;
+        int retval = select(sock + 1, &read_fds, NULL, NULL, &tv);
+        if (retval == -1) {
+            perror("select()");
+            break;
+        } else if (retval) {
+            // Datos disponibles para leer
+            int bytes_read = read(sock, buffer, sizeof(buffer));
+            if (bytes_read > 0) {
+                chat::Response response;
+                response.ParseFromArray(buffer, bytes_read);
+
+                if (response.operation() == chat::Operation::INCOMING_MESSAGE) {
+                    const chat::IncomingMessageResponse& msg = response.incoming_message();
+                    std::string message_type = (msg.type() == chat::MessageType::BROADCAST) ? "Broadcast" : "Direct";
+
+                    std::cout << "-----New Message Incoming-----\n";
+                    std::cout << "From: " << msg.sender() << "\n";
+                    std::cout << "Type: " << message_type << "\n";
+                    std::cout << "Content: " << msg.content() << "\n";
+                    std::cout << "----------------------\n";
+                }
+            } else if (bytes_read == 0) {
+                // El servidor cerró la conexión
+                std::cout << "Server closed connection\n";
+                break;
             }
         }
     }
 }
+
 
 void* receive_messages_wrapper(void* arg) {
     pthread_mutex_lock(&lock);
