@@ -82,6 +82,7 @@ void handle_client_disconnection(int client_sock) {
 
 void handle_get_users(const chat::UserListRequest& user_list_request, chat::UserListResponse* user_list_response, chat::Response& response) {
     // std::cout << "handle get users: " << user_list_request.username() << std::endl;
+    user_list_response->Clear();
     bool found = false;
     if (user_list_request.username().empty()) {
         for (const auto& user : users) {
@@ -195,6 +196,7 @@ void handle_client(int socket, const std::string& client_ip) {
         pthread_mutex_unlock(&users_mutex);
 
         chat::Response response;
+        response.Clear();
         response.set_operation(request.operation());  
         response.set_status_code(chat::StatusCode::BAD_REQUEST);
 
