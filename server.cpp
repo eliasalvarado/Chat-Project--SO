@@ -24,6 +24,7 @@ int inactivity_timeout = 30;
 void handle_register_user(const chat::NewUserRequest& request, chat::Response& response, int socket, const std::string& client_ip) {
     pthread_mutex_lock(&users_mutex);
     if (users.find(request.username()) != users.end()) {
+        response.set_operation(chat::Operation::REGISTER_USER);  
         response.set_status_code(chat::StatusCode::BAD_REQUEST);
         response.set_message("Username already taken");
     } else {
@@ -35,13 +36,15 @@ void handle_register_user(const chat::NewUserRequest& request, chat::Response& r
         session.last_activity = std::chrono::system_clock::now();
 
         users[session.username] = session;
+        response.set_operation(chat::Operation::REGISTER_USER);  
         response.set_status_code(chat::StatusCode::OK);
         response.set_message("User registered successfully");
-        
+
         std::cout << "User registered: " << session.username << " with IP: " << session.ip_address << std::endl;
     }
     pthread_mutex_unlock(&users_mutex);
 }
+
 
 void handle_update_status(const chat::UpdateStatusRequest& request, chat::Response& response) {
     pthread_mutex_lock(&users_mutex);
@@ -77,13 +80,15 @@ void handle_client_disconnection(int client_sock) {
     close(client_sock);
 }
 
-void handle_get_users(const chat::UserListRequest& user_list_request, chat::UserListResponse* user_list_response) {
+void handle_get_users(const chat::UserListRequest& user_list_request, chat::UserListResponse* user_list_response, chat::Response& response) {
     // std::cout << "handle get users: " << user_list_request.username() << std::endl;
+    bool found = false;
     if (user_list_request.username().empty()) {
         for (const auto& user : users) {
             if (user.second.status == chat::UserStatus::ONLINE) {
                 chat::User* user_proto = user_list_response->add_users();
                 user_proto->set_username(user.first);
+                found = true;
             }
         }
     } else {
@@ -94,7 +99,16 @@ void handle_get_users(const chat::UserListRequest& user_list_request, chat::User
             user_proto->set_username(it->first);
             user_proto->set_ip_address(it->second.ip_address);
             user_proto->set_status(it->second.status);
+            found = true;
         }
+    }
+
+    if (found) {
+        response.set_status_code(chat::StatusCode::OK);
+        response.set_message("User info fetched successfully.");
+    } else {
+        response.set_status_code(chat::StatusCode::NOT_FOUND);
+        response.set_message("No users found or specific user not found.");
     }
 }
 
@@ -181,6 +195,9 @@ void handle_client(int socket, const std::string& client_ip) {
         pthread_mutex_unlock(&users_mutex);
 
         chat::Response response;
+        response.set_operation(request.operation());  
+        response.set_status_code(chat::StatusCode::BAD_REQUEST);
+
         switch (request.operation()) {
             case chat::Operation::REGISTER_USER:
                 std::cout << "Handling register user " << username << std::endl;
@@ -192,7 +209,7 @@ void handle_client(int socket, const std::string& client_ip) {
                 break;
             case chat::Operation::GET_USERS:
                 std::cout << "Handling list user(s) from: " << username << std::endl;
-                handle_get_users(request.get_users(), response.mutable_user_list());
+                handle_get_users(request.get_users(), response.mutable_user_list(), response);
                 break;
             case chat::Operation::SEND_MESSAGE:
                 std::cout << "Handling send message from: " << username << std::endl;
