@@ -19,6 +19,91 @@ void exit_chat(int sock);
 std::string username;
 pthread_mutex_t lock;
 
+
+void display_help() {
+    std::cout << "-----Help-----" << std::endl;
+    std::cout << "1. Chat with all users (broadcast): Send a message to all online users." << std::endl;
+    std::cout << "2. Send a private message: Send a message to a specific user." << std::endl;
+    std::cout << "3. Change status: Update your status (ONLINE, BUSY, OFFLINE)." << std::endl;
+    std::cout << "4. List connected users: Get a list of all online users." << std::endl;
+    std::cout << "5. Display user information: Get detailed information about a specific user." << std::endl;
+    std::cout << "6. Help: Display this help message." << std::endl;
+    std::cout << "7. Exit: Leave the chat application." << std::endl;
+}
+
+void handle_response(const chat::Response& response) {
+    switch (response.operation()) {
+        case chat::Operation::INCOMING_MESSAGE: {
+            const chat::IncomingMessageResponse& msg = response.incoming_message();
+            std::string message_type = (msg.type() == chat::MessageType::BROADCAST) ? "Broadcast" : "Direct";
+            std::cout << "-----New Message Incoming-----\n";
+            std::cout << "From: " << msg.sender() << "\n";
+            std::cout << "Type: " << message_type << "\n";
+            std::cout << "Content: " << msg.content() << "\n";
+            std::cout << "----------------------\n";
+            break;
+        }
+        case chat::Operation::GET_USERS:
+            if (!response.user_list().users().empty()) {
+                const auto& first_user = response.user_list().users(0);
+                // Verificar si el primer usuario tiene un 'ip_address' establecido
+                if (!first_user.ip_address().empty()) {
+                    // Detalles de un usuario específico
+                    std::cout << "User details:\n";
+                    for (const auto& user : response.user_list().users()) {
+                        std::cout << "Username: " << user.username() << "\n"
+                                  << "IP Address: " << user.ip_address() << "\n"
+                                  << "Status: " << chat::UserStatus_Name(user.status()) << std::endl;
+                    }
+                } else {
+                    // Lista de todos los usuarios conectados
+                    std::cout << "Online users:\n";
+                    for (const auto& user : response.user_list().users()) {
+                        std::cout << "Username: " << user.username() << std::endl;
+                    }
+                }
+            } else {
+                std::cout << "No users found." << std::endl;
+            }
+            break;
+        case chat::Operation::SEND_MESSAGE: {
+            std::cout << "Message sent successfully: " << response.message() << std::endl;
+            break;
+        }
+        default:
+            std::cout << "Received response: " << response.message() << std::endl;
+            break;
+    }
+}
+
+
+void wait_for_response(int sock) {
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+    FD_SET(sock, &read_fds);
+
+    struct timeval tv;
+    tv.tv_sec = 5; 
+    tv.tv_usec = 0;
+
+    if (select(sock + 1, &read_fds, NULL, NULL, &tv) > 0) {
+        char buffer[1024];
+        int bytes_read = read(sock, buffer, sizeof(buffer));
+        if (bytes_read > 0) {
+            chat::Response response;
+            response.ParseFromArray(buffer, bytes_read);
+            handle_response(response);
+        } else {
+            std::cout << "Failed to receive response from server." << std::endl;
+        }
+    } else {
+        std::cout << "Response timed out." << std::endl;
+    }
+
+    // display_help();
+}
+
+
 bool register_user(const std::string& username, const std::string& server_ip, int server_port, int& sock) {
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) {
@@ -168,6 +253,9 @@ void send_private_message(int sock) {
 }
 
 
+
+
+
 void change_status(int sock) {
     std::cout << "-----Change status functionality-----" << std::endl;
 
@@ -229,22 +317,12 @@ void list_users(int sock) {
     request.SerializeToString(&request_str);
     send(sock, request_str.c_str(), request_str.size(), 0);
 
-    char buffer[1024];
-    int bytes_read = read(sock, buffer, sizeof(buffer));
-    if (bytes_read > 0) {
-        chat::Response response;
-        response.ParseFromArray(buffer, bytes_read);
-        std::cout << "-----Online users-----" << std::endl;
-        for (const auto& user : response.user_list().users()) {
-            std::cout << "Username: " << user.username() << std::endl;
-        }
-    } else {
-        std::cerr << "Failed to receive response from server." << std::endl;
-    }
+    wait_for_response(sock);
 }
 
+
 void display_user_info(int sock) {
-    std::cerr << "-----User Info-----" << std::endl;
+    std::cout << "-----User Info-----" << std::endl;
     std::cout << "Enter the username of the user you want to get information about: ";
     std::string user_to_search;
     std::cin >> user_to_search;
@@ -257,36 +335,8 @@ void display_user_info(int sock) {
     request.SerializeToString(&request_str);
     send(sock, request_str.c_str(), request_str.size(), 0);
 
-    char buffer[1024];
-    int bytes_read = read(sock, buffer, sizeof(buffer));
-    if (bytes_read > 0) {
-        chat::Response response;
-        response.ParseFromArray(buffer, bytes_read);
-
-        if (response.user_list().users_size() > 0) {
-            const auto& user = response.user_list().users(0);
-            std::cout << user.username() << "'s information: " << std::endl;
-            std::cout << "Username: " << user.username() << std::endl;
-            std::cout << "IP Address: " << user.ip_address() << std::endl;
-            std::cout << "Status: " << chat::UserStatus_Name(user.status()) << std::endl;
-        } else {
-            std::cout << "User not found or not online." << std::endl;
-        }
-    } else {
-        std::cerr << "Failed to receive response from server." << std::endl;
-    }
-}
-
-
-void display_help() {
-    std::cout << "-----Help-----" << std::endl;
-    std::cout << "1. Chat with all users (broadcast): Send a message to all online users." << std::endl;
-    std::cout << "2. Send a private message: Send a message to a specific user." << std::endl;
-    std::cout << "3. Change status: Update your status (ONLINE, BUSY, OFFLINE)." << std::endl;
-    std::cout << "4. List connected users: Get a list of all online users." << std::endl;
-    std::cout << "5. Display user information: Get detailed information about a specific user." << std::endl;
-    std::cout << "6. Help: Display this help message." << std::endl;
-    std::cout << "7. Exit: Leave the chat application." << std::endl;
+    // Esperar la respuesta directa y procesarla.
+    wait_for_response(sock);
 }
 
 
@@ -295,6 +345,7 @@ void exit_chat(int sock) {
     close(sock);
     exit(0);
 }
+
 
 void receive_messages(int sock) {
     fd_set read_fds;
@@ -305,28 +356,19 @@ void receive_messages(int sock) {
         FD_ZERO(&read_fds);
         FD_SET(sock, &read_fds);
 
-        tv.tv_sec = 5;
-        tv.tv_usec = 0;
+        tv.tv_sec = 0;  
+        tv.tv_usec = 500000; 
 
         int retval = select(sock + 1, &read_fds, NULL, NULL, &tv);
         if (retval == -1) {
             perror("select()");
-            break;
+            continue;
         } else if (retval) {
             int bytes_read = read(sock, buffer, sizeof(buffer));
             if (bytes_read > 0) {
                 chat::Response response;
                 response.ParseFromArray(buffer, bytes_read);
-
-                if (response.operation() == chat::Operation::INCOMING_MESSAGE) {
-                    const chat::IncomingMessageResponse& msg = response.incoming_message();
-                    std::string message_type = (msg.type() == chat::MessageType::BROADCAST) ? "Broadcast" : "Direct";
-                    std::cout << "-----New Message Incoming-----\n";
-                    std::cout << "From: " << msg.sender() << "\n";
-                    std::cout << "Type: " << message_type << "\n";
-                    std::cout << "Content: " << msg.content() << "\n";
-                    std::cout << "----------------------\n";
-                }
+                handle_response(response);
             } else if (bytes_read == 0) {
                 std::cout << "Server closed connection\n";
                 break;
